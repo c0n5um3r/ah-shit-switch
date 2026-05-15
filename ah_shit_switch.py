@@ -51,10 +51,12 @@ CHARS = {
 
 ALL_KEYS  = set(CHARS['en'].keys())
 
-WORD_BREAK = {
-    ecodes.KEY_SPACE, ecodes.KEY_ENTER, ecodes.KEY_KPENTER,
+SENT_BREAK = {
+    ecodes.KEY_ENTER, ecodes.KEY_KPENTER,
     ecodes.KEY_TAB,   ecodes.KEY_ESC,
 }
+
+SENT_BREAK_CHARS = {'.', ','}
 
 CTRL_KEYS  = {ecodes.KEY_LEFTCTRL,  ecodes.KEY_RIGHTCTRL}
 ALT_KEYS   = {ecodes.KEY_LEFTALT,   ecodes.KEY_RIGHTALT}
@@ -83,20 +85,40 @@ def get_layout() -> str:
 
 def decode(buf: list, layout: str) -> str:
     cm = CHARS[layout]
-    return ''.join(cm[k][1 if sh else 0] for k, sh in buf if k in cm)
+    parts = []
+    for k, sh in buf:
+        if k == ecodes.KEY_SPACE:
+            parts.append(' ')
+        elif k in cm:
+            parts.append(cm[k][1 if sh else 0])
+    return ''.join(parts)
+
+
+def find_switch_start(buf: list, layout: str) -> int:
+    """Index of first char to switch: after last . or , in from_layout, or 0."""
+    cm = CHARS[layout]
+    for i in range(len(buf) - 1, -1, -1):
+        k, sh = buf[i]
+        if k in cm and cm[k][1 if sh else 0] in SENT_BREAK_CHARS:
+            return i + 1
+    return 0
 
 
 def do_switch(buf: list, layout: str) -> None:
     if not buf:
         return
+    start     = find_switch_start(buf, layout)
+    sub       = buf[start:]
+    if not sub:
+        return
     target    = 'ru' if layout == 'en' else 'en'
-    corrected = decode(buf, target)
+    corrected = decode(sub, target)
     if not corrected:
         return
-    log.info('switch: %r → %r  (%s→%s)', decode(buf, layout), corrected, layout, target)
+    log.info('switch: %r → %r  (%s→%s)', decode(sub, layout), corrected, layout, target)
     time.sleep(0.05)
     args = ['wtype', '-d', '10']
-    for _ in buf:
+    for _ in sub:
         args += ['-k', 'BackSpace']
     args += ['--', corrected]
     try:
@@ -193,7 +215,7 @@ def run(keyboards: list) -> None:
                 if kstate == 2:
                     continue
 
-                if code in WORD_BREAK:
+                if code in SENT_BREAK:
                     buf.clear()
                     lshift_tap_pending = None
                     continue
@@ -213,7 +235,9 @@ def run(keyboards: list) -> None:
 
                 lshift_tap_pending = None
 
-                if code in ALL_KEYS:
+                if code == ecodes.KEY_SPACE:
+                    buf.append((ecodes.KEY_SPACE, False))
+                elif code in ALL_KEYS:
                     buf.append((code, shift))
 
 
