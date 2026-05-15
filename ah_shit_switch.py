@@ -126,10 +126,42 @@ def find_switch_start(buf: list, from_layout: str) -> int:
     return 0
 
 
-def word_score(text: str, lang: str) -> float:
-    """Sum of letter frequencies for the language — higher = looks more like a real word."""
+# Chars that come from RU letter keys when typed in EN layout —
+# strong signal that the layout was wrong.
+SPECIAL_CHARS = set("[]{}`~|\\")
+TRAILING_PUNCT = set('.,!?;:')
+
+RU_VOWELS = set('аеёиоуыэюя')
+EN_VOWELS = set('aeiouy')  # y as vowel for transition counting
+
+
+def strip_trailing(text: str) -> str:
+    while text and text[-1] in TRAILING_PUNCT:
+        text = text[:-1]
+    return text
+
+
+def has_special(text: str) -> bool:
+    return any(c in SPECIAL_CHARS for c in text)
+
+
+def transition_ratio(text: str, lang: str) -> float:
+    """Vowel<->consonant alternation ratio. Real words alternate; gibberish doesn't."""
+    vowels = RU_VOWELS if lang == 'ru' else EN_VOWELS
+    skip   = set('ьъ') if lang == 'ru' else set()
+    letters = [c.lower() for c in text if c.isalpha() and c.lower() not in skip]
+    if len(letters) < 2:
+        return 1.0
+    trans = sum(1 for i in range(len(letters) - 1)
+                if (letters[i] in vowels) != (letters[i+1] in vowels))
+    return trans / (len(letters) - 1)
+
+
+def quality_score(text: str, lang: str) -> float:
+    """Letter frequency × (0.2 + 0.8 × alternation). Penalises non-alternating gibberish."""
     freq = RU_FREQ if lang == 'ru' else EN_FREQ
-    return sum(freq.get(c.lower(), 0) for c in text)
+    freq_sum = sum(freq.get(c.lower(), 0) for c in text)
+    return freq_sum * (0.2 + 0.8 * transition_ratio(text, lang))
 
 
 def split_words(buf: list) -> list:
@@ -148,6 +180,19 @@ def split_words(buf: list) -> list:
     return out
 
 
+def should_convert(chunk: list, from_layout: str) -> bool:
+    to_layout = 'ru' if from_layout == 'en' else 'en'
+    src = decode(chunk, from_layout)
+    tgt = decode(chunk, to_layout)
+    src_core = strip_trailing(src)
+
+    # Special chars in source (RU letter keys hit while in EN layout) → wrong layout
+    if has_special(src_core):
+        return True
+
+    return quality_score(tgt, to_layout) > quality_score(src, from_layout)
+
+
 def smart_convert(buf: list, from_layout: str) -> str:
     """Per-word smart conversion. Keep words that already look correct in source layout."""
     to_layout = 'ru' if from_layout == 'en' else 'en'
@@ -156,12 +201,10 @@ def smart_convert(buf: list, from_layout: str) -> str:
         if is_space:
             parts.append(' ')
             continue
-        src = decode(chunk, from_layout)
-        tgt = decode(chunk, to_layout)
-        if word_score(tgt, to_layout) > word_score(src, from_layout):
-            parts.append(tgt)
+        if should_convert(chunk, from_layout):
+            parts.append(decode(chunk, to_layout))
         else:
-            parts.append(src)
+            parts.append(decode(chunk, from_layout))
     return ''.join(parts)
 
 
