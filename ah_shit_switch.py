@@ -56,7 +56,7 @@ SENT_BREAK = {
     ecodes.KEY_TAB,   ecodes.KEY_ESC,
 }
 
-SENT_BREAK_CHARS = {'.', ','}
+SENT_BREAK_CHARS = {'.'}
 
 CTRL_KEYS  = {ecodes.KEY_LEFTCTRL,  ecodes.KEY_RIGHTCTRL}
 ALT_KEYS   = {ecodes.KEY_LEFTALT,   ecodes.KEY_RIGHTALT}
