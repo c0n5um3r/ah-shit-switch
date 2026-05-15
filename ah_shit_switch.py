@@ -58,6 +58,23 @@ SENT_BREAK = {
 
 SENT_BREAK_CHARS = {'.'}
 
+# Approximate letter frequencies — used to score "wordiness" per language.
+RU_FREQ = {
+    'о':0.108, 'е':0.085, 'а':0.080, 'и':0.073, 'н':0.067, 'т':0.063,
+    'с':0.055, 'р':0.047, 'в':0.045, 'л':0.044, 'к':0.035, 'м':0.032,
+    'д':0.030, 'п':0.028, 'у':0.026, 'я':0.020, 'ы':0.019, 'ь':0.017,
+    'г':0.017, 'з':0.016, 'б':0.015, 'ч':0.013, 'й':0.012, 'х':0.009,
+    'ж':0.009, 'ш':0.007, 'ю':0.006, 'ц':0.004, 'щ':0.003, 'э':0.003,
+    'ф':0.002, 'ё':0.001, 'ъ':0.0004,
+}
+EN_FREQ = {
+    'e':0.127, 't':0.091, 'a':0.082, 'o':0.075, 'i':0.070, 'n':0.067,
+    's':0.063, 'h':0.061, 'r':0.060, 'd':0.043, 'l':0.040, 'c':0.028,
+    'u':0.028, 'm':0.024, 'w':0.024, 'f':0.022, 'g':0.020, 'y':0.020,
+    'p':0.019, 'b':0.015, 'v':0.010, 'k':0.008, 'j':0.002, 'x':0.002,
+    'q':0.001, 'z':0.001,
+}
+
 CTRL_KEYS  = {ecodes.KEY_LEFTCTRL,  ecodes.KEY_RIGHTCTRL}
 ALT_KEYS   = {ecodes.KEY_LEFTALT,   ecodes.KEY_RIGHTALT}
 SHIFT_KEYS = {ecodes.KEY_LEFTSHIFT, ecodes.KEY_RIGHTSHIFT}
@@ -109,23 +126,63 @@ def find_switch_start(buf: list, from_layout: str) -> int:
     return 0
 
 
+def word_score(text: str, lang: str) -> float:
+    """Sum of letter frequencies for the language — higher = looks more like a real word."""
+    freq = RU_FREQ if lang == 'ru' else EN_FREQ
+    return sum(freq.get(c.lower(), 0) for c in text)
+
+
+def split_words(buf: list) -> list:
+    """Split buffer into chunks: (is_space, sub_buf)."""
+    out, cur = [], []
+    for k, sh in buf:
+        if k == ecodes.KEY_SPACE:
+            if cur:
+                out.append((False, cur))
+                cur = []
+            out.append((True, [(k, sh)]))
+        else:
+            cur.append((k, sh))
+    if cur:
+        out.append((False, cur))
+    return out
+
+
+def smart_convert(buf: list, from_layout: str) -> str:
+    """Per-word smart conversion. Keep words that already look correct in source layout."""
+    to_layout = 'ru' if from_layout == 'en' else 'en'
+    parts = []
+    for is_space, chunk in split_words(buf):
+        if is_space:
+            parts.append(' ')
+            continue
+        src = decode(chunk, from_layout)
+        tgt = decode(chunk, to_layout)
+        if word_score(tgt, to_layout) > word_score(src, from_layout):
+            parts.append(tgt)
+        else:
+            parts.append(src)
+    return ''.join(parts)
+
+
 def do_switch(buf: list, layout: str) -> None:
     if not buf:
         return
-    start     = find_switch_start(buf, layout)
-    sub       = buf[start:]
+    start = find_switch_start(buf, layout)
+    sub   = buf[start:]
     if not sub:
         return
-    target    = 'ru' if layout == 'en' else 'en'
-    corrected = decode(sub, target)
-    if not corrected:
+    visible  = decode(sub, layout)
+    new_text = smart_convert(sub, layout)
+    if new_text == visible:
+        log.info('no conversion needed for %r', visible)
         return
-    log.info('switch: %r → %r  (%s→%s)', decode(sub, layout), corrected, layout, target)
+    log.info('switch: %r → %r  (from %s)', visible, new_text, layout)
     time.sleep(0.05)
     args = ['wtype', '-d', '10']
-    for _ in sub:
+    for _ in range(len(visible)):
         args += ['-k', 'BackSpace']
-    args += ['--', corrected]
+    args += ['--', new_text]
     try:
         subprocess.run(args, timeout=5.0, check=True)
     except Exception as exc:
