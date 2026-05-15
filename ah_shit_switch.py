@@ -94,9 +94,14 @@ def decode(buf: list, layout: str) -> str:
     return ''.join(parts)
 
 
-def find_switch_start(buf: list, layout: str) -> int:
-    """Index of first char to switch: after last . or , in from_layout, or 0."""
-    cm = CHARS[layout]
+def find_switch_start(buf: list, from_layout: str) -> int:
+    """Index of first char to switch: after last . or , in the TARGET layout, or 0.
+
+    We scan using the intended (target) layout because in the wrong layout
+    punctuation keys map to letters — e.g. KEY_DOT in RU is 'ю', not '.'.
+    """
+    to_layout = 'ru' if from_layout == 'en' else 'en'
+    cm = CHARS[to_layout]
     for i in range(len(buf) - 1, -1, -1):
         k, sh = buf[i]
         if k in cm and cm[k][1 if sh else 0] in SENT_BREAK_CHARS:
