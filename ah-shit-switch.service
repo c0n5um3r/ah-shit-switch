@@ -1,6 +1,5 @@
 [Unit]
 Description=ah-shit-switch — wrong-layout corrector for Hyprland
-After=graphical-session.target
 
 [Service]
 Type=simple
@@ -9,4 +8,4 @@ Restart=on-failure
 RestartSec=3
 
 [Install]
-WantedBy=graphical-session.target
+WantedBy=default.target
